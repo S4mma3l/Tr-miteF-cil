@@ -7,3 +7,4 @@ pydantic-settings
 supabase
 apscheduler
 sendgrid
+python-dateutil

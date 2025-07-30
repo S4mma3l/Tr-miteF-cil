@@ -7,8 +7,9 @@ from gotrue.errors import AuthApiError
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from datetime import date, timedelta, datetime
+from dateutil.relativedelta import relativedelta
 
-# --- NUEVAS IMPORTACIONES PARA RECORDATORIOS ---
+# --- Importaciones para Recordatorios ---
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sendgrid import SendGridAPIClient
@@ -20,14 +21,10 @@ from .models import (
 )
 from .settings import settings
 
-# --- Configuración del Cliente de Supabase (sin cambios) ---
+# --- Configuración (sin cambios) ---
 opts = ClientOptions(postgrest_client_timeout=10, storage_client_timeout=10)
 supabase_client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY, options=opts)
-
-# --- Aplicación FastAPI (sin cambios) ---
 app = FastAPI(title="TrámiteFácil API", version="1.0.0")
-
-# --- Configuración de CORS (sin cambios) ---
 origins = ["http://localhost:3000", "https://tr-mite-f-cil.vercel.app"]
 app.add_middleware(
     CORSMiddleware,
@@ -37,8 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Dependencia de Seguridad y Endpoints CRUD (sin cambios) ---
-# ... (Todo tu código para get_current_user, empresas, y obligaciones se mantiene aquí)
+# --- Dependencia de Seguridad ---
 async def get_current_user(request: Request):
     token = request.headers.get('authorization')
     if not token:
@@ -50,6 +46,7 @@ async def get_current_user(request: Request):
     except AuthApiError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+# --- Endpoints de Empresa ---
 @app.post("/empresas/", response_model=EmpresaLeer)
 def crear_empresa(empresa: EmpresaCrear, user=Depends(get_current_user)):
     try:
@@ -68,6 +65,7 @@ def leer_empresas(user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- Endpoints de Obligacion ---
 @app.post("/obligaciones/", response_model=ObligacionLeer)
 def crear_obligacion(obligacion: ObligacionCrear, user=Depends(get_current_user)):
     empresa_id = obligacion.empresa_id
@@ -98,15 +96,62 @@ def leer_obligaciones_de_empresa(empresa_id: int, user=Depends(get_current_user)
 @app.patch("/obligaciones/{obligacion_id}", response_model=ObligacionLeer)
 def actualizar_obligacion(obligacion_id: int, update_data: ObligacionUpdate, user=Depends(get_current_user)):
     user_id = str(user.user.id)
-    resp = supabase_client.table('Obligacion').select('id').eq('id', obligacion_id).eq('user_id', user_id).execute()
+    
+    # Obtenemos la obligación completa para verificar su propiedad y frecuencia
+    resp = supabase_client.table('Obligacion').select('*').eq('id', obligacion_id).eq('user_id', user_id).execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="Obligación no encontrada o no pertenece al usuario.")
+    
+    obligacion_actual = resp.data[0]
+
     try:
-        update_dict = update_data.model_dump()
+        # Actualizamos la obligación actual
+        update_dict = update_data.model_dump(exclude_unset=True)
         data = supabase_client.table('Obligacion').update(update_dict).eq('id', obligacion_id).execute()
-        return data.data[0]
+        obligacion_actualizada = data.data[0]
+
+        # --- LÓGICA DE RECURRENCIA MEJORADA ---
+        # CASO 1: Si la obligación se marcó como COMPLETADA y es mensual
+        if update_data.completada is True and obligacion_actual.get('frecuencia') == 'Mensual':
+            fecha_actual = date.fromisoformat(obligacion_actual['fecha_vencimiento'])
+            proxima_fecha = fecha_actual + relativedelta(months=1)
+            nueva_obligacion = {
+                'empresa_id': obligacion_actual['empresa_id'],
+                'user_id': user_id,
+                'titulo': obligacion_actual['titulo'],
+                'fecha_vencimiento': proxima_fecha.isoformat(),
+                'monto_estimado': obligacion_actual.get('monto_estimado'),
+                'frecuencia': 'Mensual',
+                'completada': False
+            }
+            supabase_client.table('Obligacion').insert(nueva_obligacion).execute()
+            print(f"Creada obligación recurrente para {proxima_fecha.isoformat()}")
+
+        # CASO 2: Si la obligación se marcó como NO COMPLETADA y es mensual (Lógica de "Deshacer")
+        elif update_data.completada is False and obligacion_actual.get('frecuencia') == 'Mensual':
+            fecha_actual = date.fromisoformat(obligacion_actual['fecha_vencimiento'])
+            proxima_fecha = fecha_actual + relativedelta(months=1)
+            
+            # Buscamos la obligación del próximo mes que coincida
+            resp_siguiente = supabase_client.table('Obligacion').select('id') \
+                .eq('titulo', obligacion_actual['titulo']) \
+                .eq('empresa_id', obligacion_actual['empresa_id']) \
+                .eq('user_id', user_id) \
+                .eq('fecha_vencimiento', proxima_fecha.isoformat()) \
+                .eq('completada', False) \
+                .execute()
+
+            # Si la encontramos, la eliminamos
+            if resp_siguiente.data:
+                id_a_borrar = resp_siguiente.data[0]['id']
+                supabase_client.table('Obligacion').delete().eq('id', id_a_borrar).execute()
+                print(f"Eliminada obligación recurrente del {proxima_fecha.isoformat()}")
+
+        return obligacion_actualizada
+        
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No se pudo actualizar la obligación: {str(e)}")
+
 
 @app.delete("/obligaciones/{obligacion_id}", status_code=204)
 def eliminar_obligacion(obligacion_id: int, user=Depends(get_current_user)):
@@ -138,19 +183,16 @@ def get_dashboard_summary(user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener el resumen del dashboard: {str(e)}")
 
-# --- NUEVA LÓGICA DE RECORDATORIOS POR CORREO ---
-
+# --- LÓGICA DE RECORDATORIOS POR CORREO ---
 async def enviar_recordatorios_diarios():
     print(f"[{datetime.now()}] Ejecutando tarea de envío de recordatorios...")
     today = date.today()
     limite_recordatorio = today + timedelta(days=7)
-
     try:
         resp = supabase_client.table('Obligacion').select('*, Empresa(nombre_comercial)').eq('completada', False).gte('fecha_vencimiento', today.isoformat()).lte('fecha_vencimiento', limite_recordatorio.isoformat()).execute()
         if not resp.data:
             print("No hay obligaciones próximas a vencer. Tarea finalizada.")
             return
-
         obligaciones_por_usuario = {}
         for obligacion in resp.data:
             user_id = obligacion['user_id']
@@ -164,12 +206,9 @@ async def enviar_recordatorios_diarios():
             try:
                 user_info = supabase_client.auth.admin.get_user_by_id(user_id)
                 email_usuario = user_info.user.email
-
                 html_content = "<h3>Hola,</h3><p>Tienes las siguientes obligaciones a punto de vencer:</p><ul>"
                 for o in obligaciones:
-                    # Usamos parse para convertir el string de fecha de nuevo a objeto date
                     fecha_obj = date.fromisoformat(o['fecha_vencimiento'])
-                    # Ahora formateamos el objeto date
                     fecha_formateada = fecha_obj.strftime('%d de %B')
                     html_content += f"<li><strong>{o['titulo']}</strong> ({o['Empresa']['nombre_comercial']}) - Vence el <strong>{fecha_formateada}</strong></li>"
                 html_content += "</ul><p>Inicia sesión en TrámiteFácil para gestionarlas.</p>"

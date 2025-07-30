@@ -21,7 +21,7 @@ class ObligacionBase(BaseModel):
     titulo: str
     fecha_vencimiento: str
     monto_estimado: Optional[float] = None
-    frecuencia: Optional[str] = None
+    frecuencia: Optional[str] = 'Única'
     completada: bool = False
 
 class ObligacionCrear(ObligacionBase):
@@ -34,7 +34,11 @@ class ObligacionLeer(ObligacionBase):
     created_at: str
 
 class ObligacionUpdate(BaseModel):
-    completada: bool
+    titulo: Optional[str] = None
+    fecha_vencimiento: Optional[str] = None
+    monto_estimado: Optional[float] = None
+    frecuencia: Optional[str] = None
+    completada: Optional[bool] = None
 
 # --- NUEVOS Modelos para el Dashboard ---
 
