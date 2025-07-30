@@ -28,7 +28,7 @@ supabase_client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE
 app = FastAPI(title="TrámiteFácil API", version="1.0.0")
 
 # --- Configuración de CORS (sin cambios) ---
-origins = ["http://localhost:3000", "https://tr-mite-f-cil.vercel.app/"]
+origins = ["http://localhost:3000", "https://tr-mite-f-cil.vercel.app"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
