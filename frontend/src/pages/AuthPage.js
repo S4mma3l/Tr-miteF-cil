@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { BsCheckCircle } from 'react-icons/bs'; // Importamos un ícono
+import { BsCheckCircle } from 'react-icons/bs'; // 1. Importamos un ícono para el mensaje
 
 function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -11,29 +11,29 @@ function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
-  // --- 1. NUEVO ESTADO para el mensaje de éxito ---
+  // 2. Añadimos un nuevo estado para controlar si el registro fue exitoso
   const [signupSuccess, setSignupSuccess] = useState(false);
 
   const handleAuth = async (event) => {
     event.preventDefault();
     setLoading(true);
     setError(null);
-    setSignupSuccess(false);
+    setSignupSuccess(false); // Reiniciamos el estado en cada intento
 
     try {
       if (isLogin) {
-        // Lógica de Inicio de Sesión (sin cambios)
+        // Lógica de Inicio de Sesión
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else {
-        // Lógica de Registro
+        // 3. Modificamos la lógica de 'signUp' para detectar un registro exitoso
         const { data, error } = await supabase.auth.signUp({
           email: email,
           password: password,
         });
         if (error) throw error;
         
-        // --- 2. Si el registro fue exitoso, activamos el mensaje ---
+        // Si Supabase crea un usuario, activamos el mensaje de éxito
         if (data.user) {
           setSignupSuccess(true);
         }
@@ -48,8 +48,10 @@ function AuthPage() {
   return (
     <div className="auth-page-wrapper"> 
       <article className="auth-container">
-        {/* --- 3. Renderizado Condicional: Muestra el mensaje o el formulario --- */}
+        
+        {/* 4. Añadimos renderizado condicional en el JSX */}
         {signupSuccess ? (
+          // Si el registro fue exitoso, muestra este mensaje
           <div className="signup-success-message">
             <BsCheckCircle className="success-icon" />
             <h2>¡Revisa tu correo!</h2>
@@ -60,6 +62,7 @@ function AuthPage() {
             <a href="#/" role="button" className="outline" onClick={() => setSignupSuccess(false)}>Volver</a>
           </div>
         ) : (
+          // Si no, muestra el formulario normal
           <>
             <hgroup>
               <h1>TrámiteFácil</h1>
@@ -67,7 +70,24 @@ function AuthPage() {
             </hgroup>
             
             <form onSubmit={handleAuth}>
-              {/* ... (inputs del formulario sin cambios) ... */}
+              <input
+                type="email"
+                name="email"
+                placeholder="Tu email"
+                aria-label="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+              <input
+                type="password"
+                name="password"
+                placeholder="Tu contraseña"
+                aria-label="Contraseña"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
               <button type="submit" aria-busy={loading}>
                 {isLogin ? 'Iniciar Sesión' : 'Registrarse'}
               </button>
