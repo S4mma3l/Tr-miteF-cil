@@ -21,11 +21,18 @@ from .models import (
 )
 from .settings import settings
 
-# --- Configuración (sin cambios) ---
+# --- Configuración del Cliente de Supabase ---
 opts = ClientOptions(postgrest_client_timeout=10, storage_client_timeout=10)
 supabase_client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY, options=opts)
+
+# --- Aplicación FastAPI ---
 app = FastAPI(title="TrámiteFácil API", version="1.0.0")
-origins = ["http://localhost:3000", "https://tr-mite-f-cil.vercel.app"]
+
+# --- Configuración de CORS ---
+origins = [
+    "http://localhost:3000",
+    "https://tr-mite-f-cil.vercel.app" # Asegúrate que esta URL sea la correcta
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -97,7 +104,6 @@ def leer_obligaciones_de_empresa(empresa_id: int, user=Depends(get_current_user)
 def actualizar_obligacion(obligacion_id: int, update_data: ObligacionUpdate, user=Depends(get_current_user)):
     user_id = str(user.user.id)
     
-    # Obtenemos la obligación completa para verificar su propiedad y frecuencia
     resp = supabase_client.table('Obligacion').select('*').eq('id', obligacion_id).eq('user_id', user_id).execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="Obligación no encontrada o no pertenece al usuario.")
@@ -105,13 +111,10 @@ def actualizar_obligacion(obligacion_id: int, update_data: ObligacionUpdate, use
     obligacion_actual = resp.data[0]
 
     try:
-        # Actualizamos la obligación actual
-        update_dict = update_data.model_dump(exclude_unset=True)
+        update_dict = update_data.model_dump(exclude_unset=True) 
         data = supabase_client.table('Obligacion').update(update_dict).eq('id', obligacion_id).execute()
         obligacion_actualizada = data.data[0]
 
-        # --- LÓGICA DE RECURRENCIA MEJORADA ---
-        # CASO 1: Si la obligación se marcó como COMPLETADA y es mensual
         if update_data.completada is True and obligacion_actual.get('frecuencia') == 'Mensual':
             fecha_actual = date.fromisoformat(obligacion_actual['fecha_vencimiento'])
             proxima_fecha = fecha_actual + relativedelta(months=1)
@@ -127,12 +130,10 @@ def actualizar_obligacion(obligacion_id: int, update_data: ObligacionUpdate, use
             supabase_client.table('Obligacion').insert(nueva_obligacion).execute()
             print(f"Creada obligación recurrente para {proxima_fecha.isoformat()}")
 
-        # CASO 2: Si la obligación se marcó como NO COMPLETADA y es mensual (Lógica de "Deshacer")
         elif update_data.completada is False and obligacion_actual.get('frecuencia') == 'Mensual':
             fecha_actual = date.fromisoformat(obligacion_actual['fecha_vencimiento'])
             proxima_fecha = fecha_actual + relativedelta(months=1)
             
-            # Buscamos la obligación del próximo mes que coincida
             resp_siguiente = supabase_client.table('Obligacion').select('id') \
                 .eq('titulo', obligacion_actual['titulo']) \
                 .eq('empresa_id', obligacion_actual['empresa_id']) \
@@ -141,7 +142,6 @@ def actualizar_obligacion(obligacion_id: int, update_data: ObligacionUpdate, use
                 .eq('completada', False) \
                 .execute()
 
-            # Si la encontramos, la eliminamos
             if resp_siguiente.data:
                 id_a_borrar = resp_siguiente.data[0]['id']
                 supabase_client.table('Obligacion').delete().eq('id', id_a_borrar).execute()
@@ -183,16 +183,26 @@ def get_dashboard_summary(user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener el resumen del dashboard: {str(e)}")
 
-# --- LÓGICA DE RECORDATORIOS POR CORREO ---
+# --- LÓGICA DE RECORDATORIOS POR CORREO (ACTUALIZADA) ---
+
 async def enviar_recordatorios_diarios():
     print(f"[{datetime.now()}] Ejecutando tarea de envío de recordatorios...")
     today = date.today()
-    limite_recordatorio = today + timedelta(days=7)
+    # Rango ajustado a 3 días
+    limite_recordatorio = today + timedelta(days=3)
+
     try:
-        resp = supabase_client.table('Obligacion').select('*, Empresa(nombre_comercial)').eq('completada', False).gte('fecha_vencimiento', today.isoformat()).lte('fecha_vencimiento', limite_recordatorio.isoformat()).execute()
+        # Consulta ajustada a 3 días
+        resp = supabase_client.table('Obligacion').select('*, Empresa(nombre_comercial)') \
+            .eq('completada', False) \
+            .gte('fecha_vencimiento', today.isoformat()) \
+            .lte('fecha_vencimiento', limite_recordatorio.isoformat()) \
+            .execute()
+
         if not resp.data:
-            print("No hay obligaciones próximas a vencer. Tarea finalizada.")
+            print(f"No hay obligaciones venciendo en los próximos {limite_recordatorio.day - today.day} días. Tarea finalizada.")
             return
+
         obligaciones_por_usuario = {}
         for obligacion in resp.data:
             user_id = obligacion['user_id']
@@ -206,7 +216,8 @@ async def enviar_recordatorios_diarios():
             try:
                 user_info = supabase_client.auth.admin.get_user_by_id(user_id)
                 email_usuario = user_info.user.email
-                html_content = "<h3>Hola,</h3><p>Tienes las siguientes obligaciones a punto de vencer:</p><ul>"
+
+                html_content = "<h3>Hola,</h3><p>Este es un recordatorio de tus próximas obligaciones:</p><ul>"
                 for o in obligaciones:
                     fecha_obj = date.fromisoformat(o['fecha_vencimiento'])
                     fecha_formateada = fecha_obj.strftime('%d de %B')
@@ -216,7 +227,7 @@ async def enviar_recordatorios_diarios():
                 message = Mail(
                     from_email=('s4mma3l@pentestercr.com', 'Alertas TrámiteFácil'),
                     to_emails=email_usuario,
-                    subject='Recordatorio de Obligaciones Pendientes',
+                    subject='Recordatorio Urgente de Obligaciones Pendientes',
                     html_content=html_content)
                 
                 sendgrid_client = SendGridAPIClient(settings.SENDGRID_API_KEY)
@@ -232,12 +243,13 @@ scheduler = AsyncIOScheduler()
 
 @app.on_event("startup")
 async def startup_event():
+    # Tarea programada para ejecutarse dos veces al día
     scheduler.add_job(
         enviar_recordatorios_diarios, 
-        trigger=CronTrigger(hour=8, minute=0, timezone='America/Costa_Rica')
+        trigger=CronTrigger(hour='8,16', minute=0, timezone='America/Costa_Rica')
     )
     scheduler.start()
-    print("Planificador de tareas iniciado. Los recordatorios se enviarán a las 8:00 AM (CST).")
+    print("Planificador de tareas iniciado. Los recordatorios se enviarán a las 8:00 AM y 4:00 PM (CST).")
 
 @app.on_event("shutdown")
 async def shutdown_event():
