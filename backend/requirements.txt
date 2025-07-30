@@ -1,0 +1,9 @@
+# backend/requirements.txt
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+# sqlalchemy, psycopg2-binary, sqlmodel ya no son necesarios con este método
+supabase-py
+apscheduler
+sendgrid

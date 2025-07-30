@@ -1,0 +1,16 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.env
+backend\.env
+# Node
+node_modules/
+.pnp
+.pnp.js
+coverage/
+build/
+
+# Editor / OS
+.vscode/
+.DS_Store
