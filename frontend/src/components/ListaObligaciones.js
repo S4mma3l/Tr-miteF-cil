@@ -2,8 +2,9 @@
 
 import React from 'react';
 import toast from 'react-hot-toast';
+import { API_URL } from '../config';
 
-const API_URL = 'http://127.0.0.1:8000';
+// const API_URL = 'http://127.0.0.1:8000';
 
 function ListaObligaciones({ obligaciones, isLoading, session, onObligacionActualizada }) {
   

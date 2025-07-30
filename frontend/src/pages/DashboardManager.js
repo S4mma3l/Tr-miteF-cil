@@ -6,8 +6,9 @@ import { supabase } from '../supabaseClient';
 import FormularioEmpresa from '../components/FormularioEmpresa';
 import ListaObligaciones from '../components/ListaObligaciones';
 import FormularioObligacion from '../components/FormularioObligacion';
+import { API_URL } from '../config';
 
-const API_URL = 'http://127.0.0.1:8000';
+// const API_URL = 'http://127.0.0.1:8000';
 
 const apiFetch = async (url, token) => {
   const response = await fetch(url, {

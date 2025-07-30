@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
+import { API_URL } from '../config';
 
-const API_URL = 'http://127.0.0.1:8000';
+// const API_URL = 'http://127.0.0.1:8000';
 
 function FormularioObligacion({ empresaId, onObligacionCreada }) {
   const [titulo, setTitulo] = useState('');

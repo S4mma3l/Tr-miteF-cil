@@ -4,8 +4,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { BsCalendar2Check, BsCalendar2X, BsCashCoin } from 'react-icons/bs'; // 1. Importamos iconos
 import DashboardSkeleton from '../components/DashboardSkeleton'; // 2. Importamos el Skeleton
+import { API_URL } from '../config';
 
-const API_URL = 'http://127.0.0.1:8000';
+//const API_URL = 'http://127.0.0.1:8000';
 
 const ObligacionItem = ({ obligacion, vencida = false }) => {
   const formatearFecha = (fechaString) => {
