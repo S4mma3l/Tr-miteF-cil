@@ -14,3 +14,5 @@ build/
 # Editor / OS
 .vscode/
 .DS_Store
+
+.gitignore
